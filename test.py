@@ -4,7 +4,8 @@ from __future__ import print_function
 from utils import tfrecord_voc_utils as voc_utils
 import tensorflow as tf
 import numpy as np
-import CenterNet as net
+import CenterNet3D as net
+#import CenterNet as net
 import os
 # import matplotlib.pyplot as plt
 # import matplotlib.patches as patches
@@ -58,7 +59,8 @@ trainset_provider = {
     'train_generator': train_gen,
     'val_generator': None                                 # not used
 }
-centernet = net.CenterNet(config, trainset_provider)
+centernet = net.CenterNet3D(config, trainset_provider)
+#centernet = net.CenterNet(config, trainset_provider)
 # centernet.load_weight('./centernet/test-8350')
 # centernet.load_pretrained_weight('./centernet/test-8350')
 for i in range(epochs):
