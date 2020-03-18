@@ -13,12 +13,13 @@ class CenterNet:
         assert config['mode'] in ['train', 'test']
         assert config['data_format'] in ['channels_first', 'channels_last']
         self.config = config
+        self.keypoint_stride = 4.0#config['keypoint_stride']
         self.data_provider = data_provider
         self.input_size = config['input_size']
         if config['data_format'] == 'channels_last':
-            self.data_shape = [self.input_size, self.input_size, 3]
+            self.data_shape = [self.input_size, self.input_size, 1]
         else:
-            self.data_shape = [3, self.input_size, self.input_size]
+            self.data_shape = [1, self.input_size, self.input_size]
         self.num_classes = config['num_classes']
         self.weight_decay = config['weight_decay']
         self.prob = 1. - config['keep_prob']
@@ -51,23 +52,27 @@ class CenterNet:
     def _define_inputs(self):
         shape = [self.batch_size]
         shape.extend(self.data_shape)
-        mean = tf.convert_to_tensor([0.485, 0.456, 0.406], dtype=tf.float32)
-        std = tf.convert_to_tensor([0.229, 0.224, 0.225], dtype=tf.float32)
-        if self.data_format == 'channels_last':
-            mean = tf.reshape(mean, [1, 1, 1, 3])
-            std = tf.reshape(std, [1, 1, 1, 3])
-        else:
-            mean = tf.reshape(mean, [1, 3, 1, 1])
-            std = tf.reshape(std, [1, 3, 1, 1])
+        #mean = tf.convert_to_tensor([0.485, 0.456, 0.406], dtype=tf.float32)
+        #std = tf.convert_to_tensor([0.229, 0.224, 0.225], dtype=tf.float32)
+        #if self.data_format == 'channels_last':
+        #    mean = tf.reshape(mean, [1, 1, 1, 3])
+        #    std = tf.reshape(std, [1, 1, 1, 3])
+        #else:
+        #    mean = tf.reshape(mean, [1, 3, 1, 1])
+        #    std = tf.reshape(std, [1, 3, 1, 1])
+        #if self.mode == 'train':
+        #    self.images, self.ground_truth = self.train_iterator.get_next()
+        #    self.images.set_shape(shape)
+        #    self.images = (self.images / 255. - mean) / std
+        #else:
+        #    self.images = tf.placeholder(tf.float32, shape, name='images')
+        #    self.images = (self.images / 255. - mean) / std
+        #    self.ground_truth = tf.placeholder(tf.float32, [self.batch_size, None, 5], name='labels')
+        self.images = tf.placeholder(tf.float32, shape, name='images')
+        self.ground_truth = tf.placeholder(tf.float32, [self.batch_size, None, 5], name='labels')
         if self.mode == 'train':
-            self.images, self.ground_truth = self.train_iterator.get_next()
-            self.images.set_shape(shape)
-            self.images = (self.images / 255. - mean) / std
-        else:
-            self.images = tf.placeholder(tf.float32, shape, name='images')
-            self.images = (self.images / 255. - mean) / std
-            self.ground_truth = tf.placeholder(tf.float32, [self.batch_size, None, 5], name='labels')
-        self.lr = tf.placeholder(dtype=tf.float32, shape=[], name='lr')
+          self.next_element_train = self.train_iterator.get_next()
+          self.lr = tf.placeholder(dtype=tf.float32, shape=[], name='lr')
 
     def _build_graph(self):
         with tf.variable_scope('backone'):
@@ -126,7 +131,7 @@ class CenterNet:
 
             features = self._conv_bn_activation(dla_stage6_3+dla_stage5_3+dla_stage4_3, 256, 3, 1)
             features = self._conv_bn_activation(features, 256, 1, 1)
-            stride = 4.0
+            #stride = self.keypoint_stride #4.0
 
         with tf.variable_scope('center_detector'):
             keypoints = self._conv_bn_activation(features, self.num_classes, 3, 1, None)
@@ -146,7 +151,7 @@ class CenterNet:
                 for i in range(self.batch_size):
                     loss = self._compute_one_image_loss(keypoints[i, ...], offset[i, ...], size[i, ...],
                                                         self.ground_truth[i, ...], meshgrid_y, meshgrid_x,
-                                                        stride, pshape)
+                                                        self.keypoint_stride, pshape)
                     total_loss.append(loss)
 
                 self.loss = tf.reduce_mean(total_loss) + self.weight_decay * tf.add_n(
@@ -177,7 +182,8 @@ class CenterNet:
                 class_id = tf.boolean_mask(class_id, score_mask)
                 bbox_yx = tf.boolean_mask(bbox_yx, score_mask)
                 bbox_hw = tf.boolean_mask(bbox_hw, score_mask)
-                bbox = tf.concat([bbox_yx-bbox_hw/2., bbox_yx+bbox_hw/2.], axis=-1) * stride
+                #bbox = tf.concat([bbox_yx-bbox_hw/2., bbox_yx+bbox_hw/2.], axis=-1) * stride
+                bbox = tf.concat([bbox_yx-bbox_hw/2., bbox_yx+bbox_hw/2.], axis=-1) * self.keypoint_stride
                 num_select = tf.cond(tf.shape(scores)[0] > self.top_k_results_output, lambda: self.top_k_results_output, lambda: tf.shape(scores)[0])
                 select_scores, select_indices = tf.nn.top_k(scores, num_select)
                 select_class_id = tf.gather(class_id, select_indices)
@@ -292,7 +298,9 @@ class CenterNet:
         mean_loss = []
         num_iters = self.num_train // self.batch_size
         for i in range(num_iters):
-            _, loss = self.sess.run([self.train_op, self.loss], feed_dict={self.lr: lr})
+            [images, boxlists] = self.sess.run(self.next_element_train)
+            _, loss = self.sess.run([self.train_op, self.loss], feed_dict={self.lr: lr, self.images: images, self.ground_truth: boxlists})
+            #_, loss = self.sess.run([self.train_op, self.loss], feed_dict={self.lr: lr})
             sys.stdout.write('\r>> ' + 'iters '+str(i+1)+str('/')+str(num_iters)+' loss '+str(loss))
             sys.stdout.flush()
             mean_loss.append(loss)
