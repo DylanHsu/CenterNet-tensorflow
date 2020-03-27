@@ -16,10 +16,11 @@ class CenterNet:
         self.keypoint_stride = 4.0#config['keypoint_stride']
         self.data_provider = data_provider
         self.input_size = config['input_size']
+        self.num_channels = config['num_channels']
         if config['data_format'] == 'channels_last':
-            self.data_shape = [self.input_size, self.input_size, 1]
+            self.data_shape = [self.input_size, self.input_size, self.num_channels]
         else:
-            self.data_shape = [1, self.input_size, self.input_size]
+            self.data_shape = [self.num_channels, self.input_size, self.input_size]
         self.num_classes = config['num_classes']
         self.weight_decay = config['weight_decay']
         self.prob = 1. - config['keep_prob']
