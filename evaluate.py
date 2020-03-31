@@ -42,6 +42,8 @@ tf.app.flags.DEFINE_boolean('is_batch',False,
     """Disable progress bar if this is a batch job""")
 tf.app.flags.DEFINE_boolean('use_cpu',False,
     """Decide if you want to use a GPU or CPUs""")
+tf.app.flags.DEFINE_integer('scan_axis',2,
+    """Which dimension is dropped or 0.5D (default 2=Z)""")
 
 def get_one_batch(image_3d, batch):
   image_batch = []
@@ -62,7 +64,17 @@ def evaluate():
   image_filenames_list = [i.strip() for i in FLAGS.image_filenames.split(',')]
   sequences = len(image_filenames_list)
   channels = FLAGS.patch_layer * sequences
-  
+  assert FLAGS.scan_axis in [0,1,2]
+  if FLAGS.scan_axis == 0:
+    padding_shape = (1, FLAGS.patch_size, FLAGS.patch_size)
+    cropping_shape = (FLAGS.patch_layer, FLAGS.patch_size, FLAGS.patch_size)
+  elif FLAGS.scan_axis == 1:
+    padding_shape = (FLAGS.patch_size, 1, FLAGS.patch_size)
+    cropping_shape = (FLAGS.patch_size, FLAGS.patch_layer, FLAGS.patch_size)
+  elif FLAGS.scan_axis == 2:
+    padding_shape = (FLAGS.patch_size, FLAGS.patch_size, 1)
+    cropping_shape = (FLAGS.patch_size, FLAGS.patch_size, FLAGS.patch_layer)
+ 
   config = {
       'mode'                : 'test',                                       # 'train', 'test'
       'input_size'          : FLAGS.patch_size,
@@ -100,7 +112,7 @@ def evaluate():
     
     transforms = [
       NiftiDataset.StatisticalNormalization(0,5.0,5.0,nonzero_only=True,zero_floor=True),
-      NiftiDataset.Padding((FLAGS.patch_size, FLAGS.patch_size, 1))      
+      NiftiDataset.Padding( padding_shape )
     ]
     
     sample = {'image': images_tfm, 'label': label_tfm}
@@ -126,9 +138,14 @@ def evaluate():
     for volume in images_tfm:
       image_np += [sitk.GetArrayFromImage(volume)]
     image_3d = np.asarray(image_np, np.float32) # (T,Z,Y,X) array
-    # need to modify this to account for choice of bb_slice_axis
-    image_3d = np.transpose(image_np,(2,3,1,0)) # (T,Z,Y,X) -> (Y,X,Z,T)
-    
+    if FLAGS.scan_axis == 0:
+      transpose = (1,2,3,0) # (T,Z,Y,X) -> (Z,Y,X,T)
+    elif FLAGS.scan_axis == 1:
+      transpose = (1,3,2,0) # (T,Z,Y,X) -> (Z,X,Y,T)
+    elif FLAGS.scan_axis == 2:
+      transpose = (2,3,1,0) # (T,Z,Y,X) -> (Y,X,Z,T)
+    image_3d = np.transpose(image_3d, transpose)
+ 
     # prepare image batch indices
     inum = int(math.ceil((image_3d.shape[0]-FLAGS.patch_size)/float(FLAGS.stride_inplane))) + 1 
     jnum = int(math.ceil((image_3d.shape[1]-FLAGS.patch_size)/float(FLAGS.stride_inplane))) + 1
@@ -199,7 +216,13 @@ def evaluate():
         #print('adding %.2f to [%d:%d,%d:%d,:]'%(scores[p],i1,i2,j1,j2))
         softmax_np[i1:i2,j1:j2,kstart:kend] += scores[p]
     softmax_np = softmax_np / np.float32(weight_np)
-    softmax_np = np.transpose(softmax_np, (2,0,1)) # (Y,X,Z) -> (Z,Y,X)
+    if FLAGS.scan_axis == 0:
+      inverse_transpose = (0,1,2) # (Z,Y,X) -> (Z,Y,X) special case
+    elif FLAGS.scan_axis == 1:
+      inverse_transpose = (0,2,1) # (Z,X,Y) -> (Z,Y,X)
+    elif FLAGS.scan_axis == 2:
+      inverse_transpose = (2,0,1) # (Y,X,Z) -> (Z,Y,X) 
+    softmax_np = np.transpose(softmax_np, inverse_transpose) 
     softmax_tfm = sitk.GetImageFromArray(softmax_np)
     softmax_tfm.SetOrigin   ( images_tfm[0].GetOrigin()    )
     softmax_tfm.SetDirection( images_tfm[0].GetDirection() )
@@ -208,12 +231,12 @@ def evaluate():
     roiFilter = sitk.RegionOfInterestImageFilter()
     start_i,start_j,start_k = images_tfm[0].TransformPhysicalPointToIndex(images[0].TransformIndexToPhysicalPoint((0,0,0))) # XYZ indices
     # assume same spacing, direction, origin?
-    roiFilter.SetSize(images_tfm[0].GetSize())
+    roiFilter.SetSize(images[0].GetSize())
     roiFilter.SetIndex([start_i,start_j,start_k])
     softmax = roiFilter.Execute(softmax_tfm)
     writer = sitk.ImageFileWriter()
     writer.UseCompressionOn()
-    writer.SetFileName(os.path.join(FLAGS.data_dir, case, 'prob_centernet.nii.gz'))
+    writer.SetFileName(os.path.join(FLAGS.data_dir, case, 'probability_centernet%s.nii.gz'%FLAGS.suffix))
     writer.Execute(softmax)
     #image_paths = [os.path.join(FLAGS.data_dir,case,image_filename) for image_filename in image_filenames_list]
     #true_label_path = os.path.join(FLAGS.data_dir,case,FLAGS.label_filename)

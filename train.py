@@ -55,12 +55,8 @@ tf.app.flags.DEFINE_float('dropout_keepprob',0.5,
 tf.app.flags.DEFINE_float('l2_weight',1e-4,
     """Weight for L2 regularization (should be order of 0.0001)""")
 
-tf.app.flags.DEFINE_boolean('use_weighted_dice',False,
-    """Use weighted dice""")
-tf.app.flags.DEFINE_float('weighted_dice_kD',1.0,
-    """Weight for the Diameter term in the Weighted-Dice paradigm.""")
-tf.app.flags.DEFINE_float('weighted_dice_kI',5.0,
-    """Weight for the Intensity term in the Weighted-Dice paradigm.""")
+tf.app.flags.DEFINE_integer('scan_axis',2,
+    """Which dimension is dropped or 0.5D (default 2=Z)""")
 
 image_filenames_list = [i.strip() for i in FLAGS.image_filenames.split(',')]
 sequences = len(image_filenames_list)
@@ -79,11 +75,23 @@ config = {
     'top_k_results_output': 0,                           
 }
 
-# To do: add logic to do padding/cropping based on bb_slice_axis
+assert FLAGS.scan_axis in [0,1,2]
+# by 2D image conventions, height comes before width
+if FLAGS.scan_axis == 0:
+  padding_shape = (1, FLAGS.patch_size, FLAGS.patch_size)
+  cropping_shape = (FLAGS.patch_layer, FLAGS.patch_size, FLAGS.patch_size)
+elif FLAGS.scan_axis == 1:
+  padding_shape = (FLAGS.patch_size, 1, FLAGS.patch_size)
+  cropping_shape = (FLAGS.patch_size, FLAGS.patch_layer, FLAGS.patch_size)
+elif FLAGS.scan_axis == 2:
+  padding_shape = (FLAGS.patch_size, FLAGS.patch_size, 1)
+  cropping_shape = (FLAGS.patch_size, FLAGS.patch_size, FLAGS.patch_layer)
+
 trainTransforms = [
     NiftiDataset.StatisticalNormalization(0, 5.0, 5.0, nonzero_only=True, zero_floor=True), # Stat.norm. MR1
-    NiftiDataset.Padding( (FLAGS.patch_size,FLAGS.patch_size,1) ),
-    NiftiDataset.RandomCrop( (FLAGS.patch_size,FLAGS.patch_size,FLAGS.patch_layer), 0, 1),
+    NiftiDataset.ManualNormalization(1, 0, 100.), # use houndfield units [0,100] -> [0,255]
+    NiftiDataset.Padding( padding_shape),
+    NiftiDataset.RandomCrop( cropping_shape, 0, 1),
     NiftiDataset.RandomNoise(0, 0.1), # MR1 noise sigma 0.1
     NiftiDataset.RandomFlip(0.5, [True,True,True])
     ]
@@ -96,9 +104,8 @@ TrainDataset = NiftiDataset.NiftiDataset(
     transforms=trainTransforms,
     train=True,
     bounding_boxes=True,
-    bb_slice_axis=2,
-    bb_slices=1,
-    cpu_threads=16
+    bb_slice_axis=FLAGS.scan_axis,
+    cpu_threads=8
     )
 
 trainDataset = TrainDataset.get_dataset()
