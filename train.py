@@ -105,29 +105,18 @@ TrainDataset = NiftiDataset.NiftiDataset(
     train=True,
     bounding_boxes=True,
     bb_slice_axis=FLAGS.scan_axis,
-    cpu_threads=8
+    cpu_threads=4
     )
 
 trainDataset = TrainDataset.get_dataset()
 trainDataset = trainDataset.apply(tf.contrib.data.unbatch())
 trainDataset = trainDataset.repeat() 
-trainDataset = trainDataset.shuffle(FLAGS.shuffle_buffer_size)
+#trainDataset = trainDataset.shuffle(FLAGS.shuffle_buffer_size)
 trainDataset = trainDataset.batch(FLAGS.batch_size)
 trainDataset = trainDataset.prefetch(5)
 train_iterator = trainDataset.make_initializable_iterator()
 train_initializer = train_iterator.make_initializer(trainDataset)
-#self.train_initializer, self.train_iterator = self.train_generator
 train_gen=[train_initializer, train_iterator]
-#train_gen = voc_utils.get_generator(data,batch_size, buffer_size, image_augmentor_config)
-
-#testTransforms = [NiftiDataset.Padding((width,width,1))]
-#
-#testDataset = NiftiDataset.NiftiDataset(
-#    data_dir = '/data/deasy/DylanHsu/N401_unstripped/subgroup1/testing',
-#    image_filename = 'img.nii.gz',
-#    label_filename = 'label_smoothed.nii.gz',
-#    transforms=testTransforms,
-#    )
 
 trainset_provider = {
   #'data_shape': [width, width, depth],
@@ -163,20 +152,4 @@ for i in range(FLAGS.epochs):
   mean_loss = centernet.train_one_epoch(lr)
   print('>> mean loss', mean_loss)
   centernet.save_weight('latest', checkpoint_prefix)            # 'latest', 'best
-# img = io.imread('000026.jpg')
-# img = transform.resize(img, [384,384])
-# img = np.expand_dims(img, 0)
-# result = centernet.test_one_image(img)
-# id_to_clasname = {k:v for (v,k) in classname_to_ids.items()}
-# scores = result[0]
-# bbox = result[1]
-# class_id = result[2]
-# print(scores, bbox, class_id)
-# plt.figure(1)
-# plt.imshow(np.squeeze(img))
-# axis = plt.gca()
-# for i in range(len(scores)):
-#     rect = patches.Rectangle((bbox[i][1],bbox[i][0]), bbox[i][3]-bbox[i][1],bbox[i][2]-bbox[i][0],linewidth=2,edgecolor='b',facecolor='none')
-#     axis.add_patch(rect)
-#     plt.text(bbox[i][1],bbox[i][0], id_to_clasname[class_id[i]]+str(' ')+str(scores[i]), color='red', fontsize=12)
-# plt.show()
+
