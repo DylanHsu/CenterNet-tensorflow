@@ -129,22 +129,26 @@ def evaluate():
     softmax_tfm.SetSpacing  ( images_tfm[0].GetSpacing()   )
     softmax_np = sitk.GetArrayFromImage(softmax_tfm)
     softmax_np = np.asarray(softmax_np, np.float32)
-    softmax_np = np.transpose(softmax_np,(1,2,0)) # (Z,Y,X) -> (Y,X,Z)
     
-    # a weighting matrix will be used for averaging the overlapped region
-    weight_np = np.zeros(softmax_np.shape)
     
     image_np = [] # list of (Z,Y,X) arrays
     for volume in images_tfm:
       image_np += [sitk.GetArrayFromImage(volume)]
     image_3d = np.asarray(image_np, np.float32) # (T,Z,Y,X) array
     if FLAGS.scan_axis == 0:
-      transpose = (1,2,3,0) # (T,Z,Y,X) -> (Z,Y,X,T)
+      transpose_4d = (1,2,3,0) # (T,Z,Y,X) -> (Z,Y,X,T)
+      transpose_3d = (0,1,2)
     elif FLAGS.scan_axis == 1:
-      transpose = (1,3,2,0) # (T,Z,Y,X) -> (Z,X,Y,T)
+      transpose_4d = (1,3,2,0) # (T,Z,Y,X) -> (Z,X,Y,T)
+      transpose_3d = (0,2,1)
     elif FLAGS.scan_axis == 2:
-      transpose = (2,3,1,0) # (T,Z,Y,X) -> (Y,X,Z,T)
-    image_3d = np.transpose(image_3d, transpose)
+      transpose_4d = (2,3,1,0) # (T,Z,Y,X) -> (Y,X,Z,T)
+      transpose_3d = (1,2,0)
+    image_3d = np.transpose(image_3d, transpose_4d)
+    
+    softmax_np = np.transpose(softmax_np, transpose_3d)
+    # a weighting matrix will be used for averaging the overlapped region
+    weight_np = np.zeros(softmax_np.shape)
  
     # prepare image batch indices
     inum = int(math.ceil((image_3d.shape[0]-FLAGS.patch_size)/float(FLAGS.stride_inplane))) + 1 
